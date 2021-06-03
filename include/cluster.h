@@ -35,7 +35,7 @@ class Cluster {
     int split(size_t max_iter_times = 10);
     int query(const float* pquery, size_t topk, size_t nprobe, std::vector<size_t>& ids, std::vector<float>& dist);
     void calculate_err();
-    void clean_empty_cluster(std::vector<std::vector<size_t>>& ivl);
+    void clean_empty_cluster();
 
  private:
     size_t nb_; // num of points in base

@@ -6,6 +6,7 @@
 #include "kmeans.h"
 #include "distance.h"
 
+const int SZ = 1000;
 void LoadQ(char** pquery, size_t &nq) {
     std::string query_file = "/home/zilliz/workspace/data/sift1m_query.bin";
     std::ifstream fin(query_file.c_str(), std::ios::binary);
@@ -64,7 +65,7 @@ int main() {
     }
     // test kmeans
     {
-        claim::Cluster kmeans(1000000, 128, 1000, 5);
+        claim::Cluster kmeans(1000000, 128, SZ, 5);
         std::string datafile = "/home/zilliz/workspace/data/sift1m.bin";
         auto tstart = std::chrono::high_resolution_clock::now();
         auto t0 = std::chrono::high_resolution_clock::now();
@@ -103,7 +104,12 @@ int main() {
         std::vector<std::vector<size_t>> ids;
         std::vector<std::vector<float>> dis;
         std::cout << "Do Query after kmeans:" << std::endl;
+        t0 = std::chrono::high_resolution_clock::now();
         kmeans.Query((float*)pquery, nq, k, 0, ids, dis);
+        t1 = std::chrono::high_resolution_clock::now();
+        std::cout << "kmeans::Query1 done in "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>( t1 - t0 ).count()
+                  << " milliseconds." << std::endl;
         std::cout << "show ans of kmeans:" << std::endl;
         for (auto i = 0; i < nq; i ++) {
             std::cout << "top1: (" << ids[i][0] << ", " << dis[i][0]
@@ -131,7 +137,12 @@ int main() {
                   << " milliseconds." << std::endl;
 
         std::cout << "Do Query after re-cluster:" << std::endl;
+        t0 = std::chrono::high_resolution_clock::now();
         kmeans.Query((float*)pquery, nq, k, 0, ids, dis);
+        t1 = std::chrono::high_resolution_clock::now();
+        std::cout << "kmeans::Query2 done in "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>( t1 - t0 ).count()
+                  << " milliseconds." << std::endl;
         std::cout << "show ans of kmeans.Query:" << std::endl;
         for (auto i = 0; i < nq; i ++) {
             std::cout << "top1: (" << ids[i][0] << ", " << dis[i][0]
@@ -143,7 +154,7 @@ int main() {
     /*
     */
     {
-        claim::Cluster cmli(1000000, 128, 1000, 5);
+        claim::Cluster cmli(1000000, 128, SZ, 5);
         std::string datafile = "/home/zilliz/workspace/data/sift1m.bin";
         auto tstart = std::chrono::high_resolution_clock::now();
         auto t0 = std::chrono::high_resolution_clock::now();
@@ -181,7 +192,12 @@ int main() {
         std::vector<std::vector<size_t>> ids;
         std::vector<std::vector<float>> dis;
         std::cout << "Do Query after cmli.re-cluster:" << std::endl;
+        t0 = std::chrono::high_resolution_clock::now();
         cmli.Query((float*)pquery, nq, k, 0, ids, dis);
+        t1 = std::chrono::high_resolution_clock::now();
+        std::cout << "cmli::Query done in "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>( t1 - t0 ).count()
+                  << " milliseconds." << std::endl;
         std::cout << "show ans of cmli.Query:" << std::endl;
         for (auto i = 0; i < nq; i ++) {
             std::cout << "top1: (" << ids[i][0] << ", " << dis[i][0]

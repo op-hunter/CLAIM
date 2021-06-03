@@ -28,7 +28,7 @@ Cluster::Cluster(const size_t nb, const size_t dim, const size_t cs, const size_
     data_ = (char*) malloc(nb * dim * sizeof(float));
     assert(data_ != nullptr);
     disf_ = L2Square;
-    scale_coefficient_ = 2.5;
+    scale_coefficient_ = 2.0;
     max_hot_pts_ = 3;
     top_hot_cls_ = 3;
 }
@@ -169,16 +169,17 @@ Cluster::Kmeans(size_t max_iter_times) {
               << std::chrono::duration_cast<std::chrono::milliseconds>( t1 - t0 ).count()
               << " milliseconds." << std::endl;
     assert(centroids_.size() == nc_);
-    std::vector<std::vector<size_t>> ivl;
-    ivl.resize(nc_);
+    invertlist_.resize(nc_);
     t0 = std::chrono::high_resolution_clock::now();
     for (auto it = 0; it < max_iter_times; it ++) {
 //        float best_dis;
 //        int best_cls;
         float err = 0.0;
         std::vector<std::pair<int, float>> avg_dst(nc_);
-        for (auto i = 0; i < nc_; i ++)
+        for (auto i = 0; i < nc_; i ++) {
             avg_dst[i].first = i, avg_dst[i].second = 0.0;
+            invertlist_[i].clear();
+        }
         // assign all points to the nearest cluster
         // todo: parallelize
 //#pragma omp parallel for schedule(static, 4096) reduction(+:err)
@@ -193,7 +194,7 @@ Cluster::Kmeans(size_t max_iter_times) {
                 }
             }
             avg_dst[best_cls].second += best_dis;
-            ivl[best_cls].push_back((size_t)i);
+            invertlist_[best_cls].push_back((size_t)i);
             distances[i].clear();
 //            distances[i].push_back(std::pair<int, float>(-1, std::numeric_limits<float>::max()));
             err += best_dis; // reduction
@@ -204,6 +205,7 @@ Cluster::Kmeans(size_t max_iter_times) {
 //            assert(!std::isnan(distances[i][0].second));
 //            avg_dst[distances[i][0].first].second += distances[i][0].second;
 //        }
+        clean_empty_cluster();
         std::cout << "total err = " << err << " after " << it << " iteration." << std::endl;
         float smsm = 0.0;
         std::sort(avg_dst.begin(), avg_dst.end(), [](const auto &l, const auto &r) {
@@ -219,18 +221,13 @@ Cluster::Kmeans(size_t max_iter_times) {
                   << ", avg_dist.avg = " << smsm / nc_ << ", avg_dist.max = " << avg_dst[avg_dst.size() - 1].second
                   << std::endl;
         if (it == max_iter_times - 1) {
-            invertlist_.resize(ivl.size());
-            for (auto ili = 0; ili < ivl.size(); ili ++)
-                invertlist_[ili].swap(ivl[ili]);
             std::cout << "ShowCSHistogram after " << max_iter_times << " times of iteration." << std::endl;
             std::cout << "-------------------------------------------------------------------------" << std::endl;
             ShowCSHistogram();
             std::cout << "-------------------------------------------------------------------------" << std::endl;
-            break;
         }
         // re-calculate the new centroids
-        clean_empty_cluster(ivl);
-        calculate_centroids(ivl, true);
+        calculate_centroids(invertlist_, false);
         // re-calculate the nearest cluster
 //        calculate_dist2centroids(distances, it == max_iter_times - 1);
         calculate_dist2centroids(distances, false);
@@ -254,13 +251,15 @@ Cluster::Init() {
               << std::chrono::duration_cast<std::chrono::milliseconds>( t1 - t0 ).count()
               << " milliseconds." << std::endl;
     // todo: iter several(3?) times to wait centroids become stable
-    std::vector<std::vector<size_t>> ivl;
-    ivl.resize(nc_);
+    invertlist_.resize(nc_);
     t0 = std::chrono::high_resolution_clock::now();
-    for (auto it = 0; it <= 3; it ++) {
+    int iter_times = 10;
+    for (auto it = 0; it <= iter_times; it ++) {
         float best_dis;
         int best_cls;
         float err = 0.0;
+        for (auto i = 0; i < nc_; i ++)
+            invertlist_[i].clear();
         // assign all points to the nearest cluster
         // todo: parallelize
 //#pragma omp parallel for schedule(static, 4096) reduction(+:err)
@@ -276,54 +275,28 @@ Cluster::Init() {
                     best_cls = distances[i][j].first;
                 }
             }
-            ivl[best_cls].push_back((size_t)i);
-            distances[i].clear();
+            invertlist_[best_cls].push_back((size_t)i);
+            if (it < iter_times)
+                distances[i].clear();
 //            distances[i].push_back(std::pair<int, float>(-1, std::numeric_limits<float>::max()));
             err += best_dis; // reduction
         }
         std::cout << "after the " << it << "th iteration, err = " << err << std::endl;
-        if (it == 3) {
+        if (it == iter_times) {
             std::cout << "ShowCSHistogram after 3 times of iteration." << std::endl;
             std::cout << "-------------------------------------------------------------------------" << std::endl;
-            int mx_sz = 0;
-            std::unordered_map<int, int> hist_map;
-            for (auto &cls : ivl) {
-                if (hist_map.find(cls.size()) != hist_map.end())
-                    hist_map[cls.size()] ++;
-                else
-                    hist_map[cls.size()] = 1;
-                mx_sz = std::max(mx_sz, (int)cls.size());
-            }
-            size_t sssums = 0;
-            std::vector<int> histogram(mx_sz + 1, 0);
-            int summmm1 = 0;
-            for (auto &pr : hist_map) {
-                histogram[pr.first] = pr.second;
-                summmm1 += pr.first * pr.second;
-//                if (histogram[pr.first] > 0) {
-//                    sssums += pr.first * pr.second;
-//                    std::cout << "there are " << pr.second << " clusters whose size is " << pr.first << std::endl;
-//                }
-            }
-            for (int kkkkk = (int)histogram.size() - 1; kkkkk >= 0; kkkkk --) {
-                if (histogram[kkkkk] > 0) {
-                    sssums += histogram[kkkkk] * kkkkk;
-                    std::cout << "there are " << histogram[kkkkk] << " clusters whose size is " << kkkkk << std::endl;
-                }
-            }
-            std::cout << "ShowCSHistogram: sums = " << sssums << ", summm = " << summmm1 << ", nb_ = " << nb_ << std::endl;
-            assert(sssums == nb_);
+            ShowCSHistogram();
             std::cout << "-------------------------------------------------------------------------" << std::endl;
             break;
         }
         // re-calculate the new centroids
-        clean_empty_cluster(ivl);
-        calculate_centroids(ivl, true);
+        clean_empty_cluster();
+        calculate_centroids(invertlist_, false);
         // re-calculate the nearest cluster
-        calculate_dist2centroids(distances, it == 2);
+        calculate_dist2centroids(distances, it == iter_times - 1);
     }
     t1 = std::chrono::high_resolution_clock::now();
-    std::cout << "Init::kmeans of 3 times iteration costs "
+    std::cout << "Init::kmeans of " << iter_times << " times iteration costs "
               << std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count()
               << " milliseconds." << std::endl;
     std::vector<std::pair<int, float>> avg_dists(nc_);
@@ -349,7 +322,7 @@ Cluster::Init() {
               << ", avg_dists.max = " << avg_dists[avg_dists.size() - 1].second << std::endl;
     float threshold = avg_dists[avg_dists.size() / 2].second * scale_coefficient_;
     int iteration_cnt = 0;
-    while (threshold < avg_dists.back().second) {
+    while (iteration_cnt < 5 || threshold < avg_dists.back().second) {
         t0 = std::chrono::high_resolution_clock::now();
         std::vector<int> re_con_list;
         for (int i = (int)avg_dists.size() - 1; i >= 0; i --) {
@@ -493,6 +466,7 @@ Cluster::ShowCSHistogram() {
         histogram[pr.first] = pr.second;
         summmm1 += pr.first * pr.second;
     }
+    std::cout << "there are " << nc_ << " clusters in total." << std::endl;
     for (int kkkkk = (int)histogram.size() - 1; kkkkk >= 0; kkkkk --) {
         if (histogram[kkkkk] > 0) {
             sssums += histogram[kkkkk] * kkkkk;
@@ -655,6 +629,9 @@ Cluster::split_into_limited_cluster(std::vector<std::pair<int, float>>& sum_dist
         lst.reserve(cs_);
         lst.clear();
     }
+    std::vector<int> choose_cnt(nb_ + 10, 0);
+    int sum_cnt = 0;
+    int mx_cnt = 0;
     t0 = std::chrono::high_resolution_clock::now();
     do {
         auto pr = hp.Pop();
@@ -665,6 +642,10 @@ Cluster::split_into_limited_cluster(std::vector<std::pair<int, float>>& sum_dist
             sum_dists[pr.first->first].second += pr.first->second;
         } else {
             pr.first ++;
+            choose_cnt[pr.second] ++;
+            if (mx_cnt < choose_cnt[pr.second])
+                mx_cnt = choose_cnt[pr.second];
+            sum_cnt ++;
             hp.Push(pr);
         }
     } while (!hp.Empty());
@@ -680,6 +661,7 @@ Cluster::split_into_limited_cluster(std::vector<std::pair<int, float>>& sum_dist
     std::cout << "split_into_limited_cluster: split points into cluster totally costs "
               << std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count()
               << " milliseconds." << std::endl;
+    std::cout << "split_into_limited_cluster mx_cnt = " << mx_cnt << ", sum_cnt = " << sum_cnt << std::endl;
     std::cout << "split_into_limited_cluster:: sum_dis = " << sum_dis << std::endl;
     auto tend = std::chrono::high_resolution_clock::now();
     std::cout << "split_into_limited_cluster done in "
@@ -715,7 +697,8 @@ Cluster::Query(const float* pquery,
     dist.resize(nq);
     if (nprobe == 0) {
 //        nprobe = (nc_ / 100 + (nc_ % 100 > 50)) * 2;
-        nprobe = nc_ * 2 / 100;
+//        nprobe = nc_ * 2 / 100;
+        nprobe = (nc_ - 1) / 50 + 1;
     }
     std::cout << "Cluster::Query: nq = " << nq << ", topk = " << topk << ", nprobe = " << nprobe << std::endl;
     std::vector<int> vis_cnt(nq, 0);
@@ -798,12 +781,12 @@ Cluster::calculate_err() {
 }
 
 void
-Cluster::clean_empty_cluster(std::vector<std::vector<size_t>>& ivl) {
-    assert(ivl.size() == nc_);
+Cluster::clean_empty_cluster() {
+    assert(invertlist_.size() == nc_);
     do {
         int i, j;
         for (i = 0; i < nc_; i ++) {
-            if (ivl[i].size() == 0) {
+            if (invertlist_[i].size() == 0) {
                 break;
             }
         }
@@ -813,8 +796,8 @@ Cluster::clean_empty_cluster(std::vector<std::vector<size_t>>& ivl) {
         int mx = 0;
         j = i;
         for (auto ii = 0; ii < nc_; ii ++) {
-            if (mx < ivl[ii].size()) {
-                mx = ivl[ii].size();
+            if (mx < invertlist_[ii].size()) {
+                mx = invertlist_[ii].size();
                 j = ii;
             }
         }
