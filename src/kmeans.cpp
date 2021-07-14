@@ -50,7 +50,14 @@ kMeansPP(const float* pdata, const size_t nb, const size_t dim, const size_t num
             assert(!std::isnan(dis_cj));
             dist[j] = std::min(dist[j], dis_cj);
             sumdx2 += dist[j];
-            distances[j].push_back(std::pair<int, float>(i - 1, dis_cj));
+            if (distances[j].size() > 0) {
+                if (distances[j][0].second > dis_cj) {
+                    distances[j][0].second = dis_cj;
+                    distances[j][0].first = i - 1;
+                }
+            } else {
+                distances[j].push_back(std::pair<int, float>(i - 1, dis_cj));
+            }
         }
         if (i == num_clusters)
             break;

@@ -15,12 +15,14 @@ class Cluster {
 
     // load points in binary format
     void Load(std::string& source_data_path);
-    void Init();
+    void SetData(char* pdata);
+    void SizeLimited();
     void Train();
     void HealthyCheck();
     void ShowCSHistogram();
     void Kmeans(size_t max_iter_times = 10);
-    void Split(size_t max_iter_times = 10);
+    void Split(size_t max_iter_times = 10); // kmeans first and then split the big cluster into smaller
+    void Slice(size_t max_iter_times = 10); // split the dataset first and then do kmeans
     void Query(const float* pquery, size_t nq, size_t topk, size_t nprobe, std::vector<std::vector<size_t>>& ids, std::vector<std::vector<float>>& dist);
 
  private:
@@ -50,6 +52,7 @@ class Cluster {
     std::vector<std::vector<size_t>> invertlist_; // ids of each cluster
     char* data_;
     p_dis disf_;
+    bool own_data_;
 };
 
 } // namespace claim

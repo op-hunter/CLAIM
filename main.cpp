@@ -6,7 +6,7 @@
 #include "kmeans.h"
 #include "distance.h"
 
-const int SZ = 1000;
+const int SZ = 0;
 void LoadQ(char** pquery, size_t &nq) {
     std::string query_file = "/home/zilliz/workspace/data/sift1m_query.bin";
     std::ifstream fin(query_file.c_str(), std::ios::binary);
@@ -117,6 +117,7 @@ int main() {
         }
         Recall(groundtruth, dis, k, nq);
 
+        /*
         std::cout << "now do split:" << std::endl;
         t0 = std::chrono::high_resolution_clock::now();
         kmeans.Split(4);
@@ -149,10 +150,10 @@ int main() {
                       << ") topk: (" << ids[i][k - 1] << ", " << dis[i][k - 1] << ")" << std::endl;
         }
         Recall(groundtruth, dis, k, nq);
+        */
     }
     // test claim
     /*
-    */
     {
         claim::Cluster cmli(1000000, 128, SZ, 5);
         std::string datafile = "/home/zilliz/workspace/data/sift1m.bin";
@@ -165,7 +166,7 @@ int main() {
                   << " milliseconds." << std::endl;
         std::cout << "Load Done!" << std::endl;
         t0 = std::chrono::high_resolution_clock::now();
-        cmli.Init();
+        cmli.SizeLimited();
         t1 = std::chrono::high_resolution_clock::now();
         std::cout << "cmli::Init done in "
                   << std::chrono::duration_cast<std::chrono::milliseconds>( t1 - t0 ).count()
@@ -205,6 +206,7 @@ int main() {
         }
         Recall(groundtruth, dis, k, nq);
     }
+    */
 
     free(pquery);
     return 0;

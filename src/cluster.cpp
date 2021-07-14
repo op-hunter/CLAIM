@@ -22,7 +22,7 @@ namespace claim {
 
 Cluster::Cluster(const size_t nb, const size_t dim, const size_t cs, const size_t max_iter_time)
 : nb_(nb), dim_(dim), cs_(cs), iter_(max_iter_time), data_(nullptr) {
-    nc_ = (nb - 1) / cs + 1;
+    nc_ = cs ? (nb - 1) / cs + 1 : 4924;
     centroids_.reserve((size_t)(nc_ * EXPANSION_FACTOR));
     invertlist_.reserve((size_t)(nc_ * EXPANSION_FACTOR));
     data_ = (char*) malloc(nb * dim * sizeof(float));
@@ -31,6 +31,10 @@ Cluster::Cluster(const size_t nb, const size_t dim, const size_t cs, const size_
     scale_coefficient_ = 2.0;
     max_hot_pts_ = 3;
     top_hot_cls_ = 3;
+    if (!cs_) {
+        std::cout << "kmeans with fixed nlist = " << nc_ << std::endl;
+    }
+    own_data_ = false;
 }
 
 /*
@@ -64,98 +68,20 @@ Cluster::Load(std::string& source_data_path) {
         std::cout << pp[999999 * dim_ + i] << " ";
     std::cout << std::endl;
     std::cout << "--------------------------------------------------------------------------------" << std::endl;
+    own_data_ = true;
+}
+
+void
+Cluster::SetData(char* pdata) {
+    if (own_data_ && data_)
+        free(data_);
+    data_ = pdata;
+    own_data_ = false;
 }
 
 Cluster::~Cluster() {
-    if (data_)
+    if (own_data_ && data_)
         free(data_);
-}
-
-int
-Cluster::split(size_t max_iter_times) {
-    std::vector<int> to_split;
-    for (auto i = 0; i < nc_; i ++) {
-        if (invertlist_[i].size() > cs_)
-            to_split.push_back(i);
-    }
-    std::random_device rd;  // Will be used to obtain a seed for the random number engine
-    auto         x = rd();
-    std::mt19937 generator(x);  // Standard mersenne_twister_engine seeded with rd()
-    auto pd = (float*)data_;
-    for (auto &ci : to_split) {
-        auto cluster_nums = (invertlist_[ci].size() - 1) / cs_ + 1;
-        std::cout << "start to split cluster " << ci << " into " << cluster_nums
-                  << " clusters whose size is " << invertlist_[ci].size() << std::endl;
-        std::uniform_int_distribution<int> distribution(0, (int)invertlist_[ci].size() - 1);
-        std::vector<bool> flag(invertlist_[ci].size(), false);
-        std::vector<std::vector<float>> tmp_centroids(cluster_nums, std::vector<float>(dim_, 0.0));
-        std::vector<std::vector<size_t>> tmp_ivls(cluster_nums);
-        std::vector<std::pair<int, float>> tmp_distances(invertlist_[ci].size(), std::pair<int, float>(-1, std::numeric_limits<float>::max()));
-        for (auto i = 0; i < cluster_nums; i ++) {
-            auto cid = distribution(generator);
-            if (flag[cid]) {
-                i --;
-                continue;
-            }
-            flag[cid] = true;
-            memcpy(tmp_centroids[i].data(), pd + invertlist_[ci][cid] * dim_, dim_ * sizeof(float));
-        }
-        for (auto it = 0; it < max_iter_times; it ++) {
-            float err = 0.0;
-            for (auto ii = 0; ii < cluster_nums; ii ++) {
-                tmp_ivls[ii].clear();
-            }
-            for (auto ii = 0; ii < invertlist_[ci].size(); ii ++)
-                tmp_distances[ii].second = std::numeric_limits<float>::max();
-            for (auto ii = 0; ii < cluster_nums; ii ++) {
-                for (auto jj = 0; jj < invertlist_[ci].size(); jj ++) {
-                    auto dist_iijj = disf_(tmp_centroids[ii].data(), pd + invertlist_[ci][jj] * dim_, &dim_);
-                    if (dist_iijj < tmp_distances[jj].second) {
-                        tmp_distances[jj].second = dist_iijj;
-                        tmp_distances[jj].first = ii;
-                    }
-                }
-            }
-            for (auto ii = 0; ii < tmp_distances.size(); ii ++) {
-                tmp_ivls[tmp_distances[ii].first].push_back(invertlist_[ci][ii]);
-                err += tmp_distances[ii].second;
-            }
-            for (auto ii = 0; ii < tmp_centroids.size(); ii ++) {
-                for (auto jj = 0; jj < tmp_centroids[ii].size(); jj ++)
-                    tmp_centroids[ii][jj] = 0.0;
-                for (auto jj = 0; jj < tmp_ivls[ii].size(); jj ++) {
-                    auto ppp = pd + tmp_ivls[ii][jj] * dim_;
-                    for (auto kk = 0; kk < dim_; kk ++) {
-                        tmp_centroids[ii][kk] += ppp[kk];
-                    }
-                }
-                for (auto jj = 0; jj < dim_; jj ++)
-                    tmp_centroids[ii][jj] /= tmp_ivls[ii].size();
-            }
-            std::cout << "it = " << it << ", err = " << err << std::endl;
-        }
-        centroids_[ci].swap(tmp_centroids[0]);
-        invertlist_[ci].swap(tmp_ivls[0]);
-        nc_ += cluster_nums - 1;
-        int mx_sz = tmp_ivls[0].size();
-        int mn_sz = tmp_ivls[0].size();
-        for (auto ii = 1; ii < tmp_centroids.size(); ii ++) {
-            centroids_.push_back(tmp_centroids[ii]);
-            invertlist_.push_back(tmp_ivls[ii]);
-            if (mx_sz < tmp_ivls[ii].size())
-                mx_sz = tmp_ivls[ii].size();
-            if (mn_sz > tmp_ivls[ii].size())
-                mn_sz = tmp_ivls[ii].size();
-        }
-        std::cout << "split cluster " << ci << " into " << cluster_nums << " clusters, "
-                  << " min size = " << mn_sz
-                  << " max size = " << mx_sz
-                  << std::endl;
-        std::cout << "current nc_ = " << nc_ << ", invlist.size = " << invertlist_.size()
-                  << ", centroids.size = " << centroids_.size()
-                  << std::endl;
-    }
-    return (int)to_split.size();
 }
 
 void
@@ -165,7 +91,7 @@ Cluster::Kmeans(size_t max_iter_times) {
     auto t0 = std::chrono::high_resolution_clock::now();
     kMeansPP((float *)data_, nb_, dim_, nc_, centroids_, disf_, distances);
     auto t1 = std::chrono::high_resolution_clock::now();
-    std::cout << "Init::kMeansPP done in "
+    std::cout << "Kmeans::kMeansPP done in "
               << std::chrono::duration_cast<std::chrono::milliseconds>( t1 - t0 ).count()
               << " milliseconds." << std::endl;
     assert(centroids_.size() == nc_);
@@ -233,7 +159,7 @@ Cluster::Kmeans(size_t max_iter_times) {
         calculate_dist2centroids(distances, false);
     }
     t1 = std::chrono::high_resolution_clock::now();
-    std::cout << "Init::kmeans of " << max_iter_times << " times iteration costs "
+    std::cout << "Kmeans::kmeans of " << max_iter_times << " times iteration costs "
               << std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count()
               << " milliseconds." << std::endl;
 }
@@ -242,7 +168,7 @@ Cluster::Kmeans(size_t max_iter_times) {
  * run k-means++ algorithm to get initial clusters and ensure the size of each cluster not more than *cs_*.
  */
 void
-Cluster::Init() {
+Cluster::SizeLimited() {
     std::vector<std::vector<std::pair<int, float>>> distances;
     auto t0 = std::chrono::high_resolution_clock::now();
     kMeansPP((float *)data_, nb_, dim_, nc_, centroids_, disf_, distances);
@@ -811,4 +737,92 @@ Cluster::clean_empty_cluster() {
         invertlist_[j].swap(ils[1]);
     } while (true);
 }
+
+int
+Cluster::split(size_t max_iter_times) {
+    std::vector<int> to_split;
+    for (auto i = 0; i < nc_; i ++) {
+        if (invertlist_[i].size() > cs_)
+            to_split.push_back(i);
+    }
+    std::random_device rd;  // Will be used to obtain a seed for the random number engine
+    auto         x = rd();
+    std::mt19937 generator(x);  // Standard mersenne_twister_engine seeded with rd()
+    auto pd = (float*)data_;
+    for (auto &ci : to_split) {
+        auto cluster_nums = (invertlist_[ci].size() - 1) / cs_ + 1;
+        std::cout << "start to split cluster " << ci << " into " << cluster_nums
+                  << " clusters whose size is " << invertlist_[ci].size() << std::endl;
+        std::uniform_int_distribution<int> distribution(0, (int)invertlist_[ci].size() - 1);
+        std::vector<bool> flag(invertlist_[ci].size(), false);
+        std::vector<std::vector<float>> tmp_centroids(cluster_nums, std::vector<float>(dim_, 0.0));
+        std::vector<std::vector<size_t>> tmp_ivls(cluster_nums);
+        std::vector<std::pair<int, float>> tmp_distances(invertlist_[ci].size(), std::pair<int, float>(-1, std::numeric_limits<float>::max()));
+        for (auto i = 0; i < cluster_nums; i ++) {
+            auto cid = distribution(generator);
+            if (flag[cid]) {
+                i --;
+                continue;
+            }
+            flag[cid] = true;
+            memcpy(tmp_centroids[i].data(), pd + invertlist_[ci][cid] * dim_, dim_ * sizeof(float));
+        }
+        for (auto it = 0; it < max_iter_times; it ++) {
+            float err = 0.0;
+            for (auto ii = 0; ii < cluster_nums; ii ++) {
+                tmp_ivls[ii].clear();
+            }
+            for (auto ii = 0; ii < invertlist_[ci].size(); ii ++)
+                tmp_distances[ii].second = std::numeric_limits<float>::max();
+            for (auto ii = 0; ii < cluster_nums; ii ++) {
+                for (auto jj = 0; jj < invertlist_[ci].size(); jj ++) {
+                    auto dist_iijj = disf_(tmp_centroids[ii].data(), pd + invertlist_[ci][jj] * dim_, &dim_);
+                    if (dist_iijj < tmp_distances[jj].second) {
+                        tmp_distances[jj].second = dist_iijj;
+                        tmp_distances[jj].first = ii;
+                    }
+                }
+            }
+            for (auto ii = 0; ii < tmp_distances.size(); ii ++) {
+                tmp_ivls[tmp_distances[ii].first].push_back(invertlist_[ci][ii]);
+                err += tmp_distances[ii].second;
+            }
+            for (auto ii = 0; ii < tmp_centroids.size(); ii ++) {
+                for (auto jj = 0; jj < tmp_centroids[ii].size(); jj ++)
+                    tmp_centroids[ii][jj] = 0.0;
+                for (auto jj = 0; jj < tmp_ivls[ii].size(); jj ++) {
+                    auto ppp = pd + tmp_ivls[ii][jj] * dim_;
+                    for (auto kk = 0; kk < dim_; kk ++) {
+                        tmp_centroids[ii][kk] += ppp[kk];
+                    }
+                }
+                for (auto jj = 0; jj < dim_; jj ++)
+                    tmp_centroids[ii][jj] /= tmp_ivls[ii].size();
+            }
+            std::cout << "it = " << it << ", err = " << err << std::endl;
+        }
+        centroids_[ci].swap(tmp_centroids[0]);
+        invertlist_[ci].swap(tmp_ivls[0]);
+        nc_ += cluster_nums - 1;
+        int mx_sz = tmp_ivls[0].size();
+        int mn_sz = tmp_ivls[0].size();
+        for (auto ii = 1; ii < tmp_centroids.size(); ii ++) {
+            centroids_.push_back(tmp_centroids[ii]);
+            invertlist_.push_back(tmp_ivls[ii]);
+            if (mx_sz < tmp_ivls[ii].size())
+                mx_sz = tmp_ivls[ii].size();
+            if (mn_sz > tmp_ivls[ii].size())
+                mn_sz = tmp_ivls[ii].size();
+        }
+        std::cout << "split cluster " << ci << " into " << cluster_nums << " clusters, "
+                  << " min size = " << mn_sz
+                  << " max size = " << mx_sz
+                  << std::endl;
+        std::cout << "current nc_ = " << nc_ << ", invlist.size = " << invertlist_.size()
+                  << ", centroids.size = " << centroids_.size()
+                  << std::endl;
+    }
+    return (int)to_split.size();
+}
+
 } // namespace claim

@@ -3,7 +3,8 @@ project(CLAIM)
 
 set(CMAKE_CXX_STANDARD 14)
 
-include_directories(${PROJECT_SOURCE_DIR}/include)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+#include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(include)
 
 find_package(OpenMP REQUIRED)
